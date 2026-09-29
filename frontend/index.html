@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Expense tracker</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=DM+Sans:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="page">
+
+    <header class="top">
+      <h1>Expense tracker</h1>
+      <div class="controls">
+        <label class="field-inline">
+          <span>Month</span>
+          <select id="month"></select>
+        </label>
+        <label class="field-inline">
+          <span>Monthly budget</span>
+          <span class="prefix-wrap">
+            <span class="prefix" aria-hidden="true">₹</span>
+            <input id="budget" type="number" min="1" step="100" inputmode="numeric">
+          </span>
+        </label>
+      </div>
+    </header>
+
+    <div id="banner" class="banner" role="alert" hidden></div>
+
+    <main>
+      <!-- Budget: the main thing on the page -->
+      <section class="hero" id="hero" data-status="ok" aria-labelledby="hero-title">
+        <p class="hero-month" id="hero-month"></p>
+        <h2 class="hero-figure" id="hero-title">
+          <span id="hero-amount">₹0</span>
+          <span class="hero-word" id="hero-word">left</span>
+        </h2>
+        <p class="hero-sub" id="hero-sub"></p>
+        <div class="meter" id="meter" role="img" aria-label="">
+          <div class="meter-bar" id="meter-bar"></div>
+          <div class="meter-marker" id="meter-marker" hidden><span>Budget</span></div>
+        </div>
+        <p class="hero-note" id="hero-note"></p>
+      </section>
+
+      <dl class="stats" id="stats"></dl>
+
+      <div class="grid two">
+        <section class="panel" aria-labelledby="cat-title">
+          <h2 id="cat-title">Where the money went</h2>
+          <div class="cat-wrap">
+            <div id="donut" class="donut"></div>
+            <ul id="legend" class="legend"></ul>
+          </div>
+        </section>
+
+        <section class="panel" aria-labelledby="trend-title">
+          <h2 id="trend-title">Month by month</h2>
+          <p class="hint">The dashed line is your budget. Select a bar to open that month.</p>
+          <div id="monthly-chart" class="chart"></div>
+          <h2 class="sub-title">Day by day</h2>
+          <div id="daily-chart" class="chart"></div>
+        </section>
+      </div>
+
+      <div class="grid work">
+        <section class="panel" aria-labelledby="form-title">
+          <h2 id="form-title">Add an expense</h2>
+          <form id="expense-form" novalidate>
+            <div class="form-row">
+              <label class="field">
+                <span>Amount (₹)</span>
+                <input name="amount" type="number" min="0.01" step="0.01" inputmode="decimal" required>
+              </label>
+              <label class="field">
+                <span>Date</span>
+                <input name="date" type="date" required>
+              </label>
+            </div>
+            <label class="field">
+              <span>Category</span>
+              <input name="category" type="text" list="category-list" autocomplete="off" placeholder="Food, Rent, Travel" required>
+              <datalist id="category-list"></datalist>
+            </label>
+            <label class="field">
+              <span>Description (optional)</span>
+              <input name="description" type="text" autocomplete="off" placeholder="What was it for?">
+            </label>
+            <p id="form-error" class="form-error" role="alert" hidden></p>
+            <div class="form-actions">
+              <button type="submit" class="btn primary" id="form-submit">Add expense</button>
+              <button type="button" class="btn ghost" id="form-cancel" hidden>Cancel</button>
+            </div>
+          </form>
+        </section>
+
+        <section class="panel" aria-labelledby="table-title">
+          <div class="table-head">
+            <h2 id="table-title">Expenses</h2>
+            <p class="table-meta" id="table-meta"></p>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th scope="col">Date</th>
+                  <th scope="col">Description</th>
+                  <th scope="col">Category</th>
+                  <th scope="col" class="num">Amount</th>
+                  <th scope="col"><span class="sr-only">Actions</span></th>
+                </tr>
+              </thead>
+              <tbody id="expense-rows"></tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <script src="script.js" defer></script>
+</body>
+</html>

@@ -1,20 +1,28 @@
 import sqlite3
+from pathlib import Path
 
-connection = sqlite3.connect("database/expenses.db")
+DB_PATH = Path(__file__).resolve().parent.parent / "database" / "expenses.db"
 
-cursor = connection.cursor()
 
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS expenses (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    amount REAL NOT NULL,
-    category TEXT NOT NULL,
-    description TEXT,
-    date TEXT NOT NULL
-)
-""")
+def get_connection():
+    connection = sqlite3.connect(DB_PATH)
+    connection.row_factory = sqlite3.Row
+    return connection
 
-connection.commit()
-connection.close()
 
-print("Database and expenses table created successfully!")
+def init_db():
+    with get_connection() as connection:
+        connection.execute("""
+            CREATE TABLE IF NOT EXISTS expenses (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                amount REAL NOT NULL,
+                category TEXT NOT NULL,
+                description TEXT,
+                date TEXT NOT NULL
+            )
+        """)
+
+
+if __name__ == "__main__":
+    init_db()
+    print("Database and expenses table created successfully!")

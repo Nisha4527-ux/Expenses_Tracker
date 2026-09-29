@@ -1,226 +1,223 @@
-import sqlite3
+"""
+Expense analytics.
 
-connection = sqlite3.connect("database/expenses.db")
-cursor = connection.cursor()
+Every function returns plain Python data (numbers, dicts, lists) so it can be
+used by the Flask/FastAPI backend (jsonify / return directly) or printed by the
+CLI report at the bottom of this file.
 
-# Total expenses
-cursor.execute("SELECT SUM(amount) FROM expenses")
-total = cursor.fetchone()[0]
+Dates must be stored as YYYY-MM-DD. `month` arguments use the format YYYY-MM.
+"""
+from datetime import date
 
-print("Total Expenses:", total if total else 0)
+from database import get_connection
 
-# Expenses by category
-print("\nExpenses by Category:")
+DEFAULT_MONTHLY_BUDGET = 5000
 
-cursor.execute("""
-    SELECT category, SUM(amount)
-    FROM expenses
-    GROUP BY category
-""")
 
-data = cursor.fetchall()
+# ---------- helpers ----------
 
-for category, amount in data:
-    print(category, ":", amount)
+def current_month():
+    return date.today().strftime("%Y-%m")
 
-    # Highest spending category
-cursor.execute("""
-    SELECT category, SUM(amount)
-    FROM expenses
-    GROUP BY category
-    ORDER BY SUM(amount) DESC
-    LIMIT 1
-""")
 
-highest = cursor.fetchone()
+def _month_filter(month):
+    """Return (WHERE clause, params) for an optional YYYY-MM filter."""
+    if month:
+        return "WHERE strftime('%Y-%m', date) = ?", (month,)
+    return "", ()
 
-if highest:
-    print("\nHighest Spending Category:", highest[0])
-    print("Amount Spent:", highest[1])
-else:
-    print("\nNo expenses found.")
 
-    # Average expense
-cursor.execute("SELECT AVG(amount) FROM expenses")
-average = cursor.fetchone()[0]
+def _rows_to_dicts(rows):
+    return [dict(row) for row in rows]
 
-print("\nAverage Expense:", round(average, 2))
 
-# Daily expenses
-print("\nExpenses by Date:")
+# ---------- core analytics ----------
 
-cursor.execute("""
-    SELECT date, SUM(amount)
-    FROM expenses
-    GROUP BY date
-    ORDER BY date
-""")
+def get_total_spent(month=None):
+    where, params = _month_filter(month)
+    with get_connection() as conn:
+        row = conn.execute(f"SELECT COALESCE(SUM(amount), 0) AS total FROM expenses {where}", params).fetchone()
+    return round(row["total"], 2)
 
-daily_data = cursor.fetchall()
 
-for date, amount in daily_data:
-    print(date, ":", amount)
+def get_average_expense(month=None):
+    where, params = _month_filter(month)
+    with get_connection() as conn:
+        row = conn.execute(f"SELECT COALESCE(AVG(amount), 0) AS avg FROM expenses {where}", params).fetchone()
+    return round(row["avg"], 2)
 
-    # Highest spending day
-cursor.execute("""
-    SELECT date, SUM(amount)
-    FROM expenses
-    GROUP BY date
-    ORDER BY SUM(amount) DESC
-    LIMIT 1
-""")
 
-highest_day = cursor.fetchone()
+def get_expense_count(month=None):
+    where, params = _month_filter(month)
+    with get_connection() as conn:
+        row = conn.execute(f"SELECT COUNT(*) AS n FROM expenses {where}", params).fetchone()
+    return row["n"]
 
-if highest_day:
-    print("\nHighest Spending Day:", highest_day[0])
-    print("Amount Spent:", highest_day[1])
-else:
-    print("\nNo expenses found.")
 
-    # Spending percentage by category
-print("\nSpending Percentage by Category:")
+def get_category_breakdown(month=None):
+    """[{category, total, percentage}] sorted from highest to lowest spend."""
+    where, params = _month_filter(month)
+    with get_connection() as conn:
+        rows = conn.execute(f"""
+            SELECT category, SUM(amount) AS total
+            FROM expenses {where}
+            GROUP BY category
+            ORDER BY total DESC
+        """, params).fetchall()
 
-cursor.execute("SELECT SUM(amount) FROM expenses")
-total = cursor.fetchone()[0]
+    grand_total = sum(r["total"] for r in rows)
+    return [
+        {
+            "category": r["category"],
+            "total": round(r["total"], 2),
+            "percentage": round(r["total"] / grand_total * 100, 2) if grand_total else 0,
+        }
+        for r in rows
+    ]
 
-cursor.execute("""
-    SELECT category, SUM(amount)
-    FROM expenses
-    GROUP BY category
-""")
 
-category_data = cursor.fetchall()
+def get_top_category(month=None):
+    breakdown = get_category_breakdown(month)
+    return breakdown[0] if breakdown else None
 
-for category, amount in category_data:
-    percentage = (amount / total) * 100
-    print(category, ":", round(percentage, 2), "%")
 
-    # Spending summary
-print("\n===== EXPENSE SUMMARY =====")
-print("Total Expense:", total)
-print("Average Expense:", round(average, 2))
+def get_daily_spending(month=None):
+    """[{date, total}] in date order."""
+    where, params = _month_filter(month)
+    with get_connection() as conn:
+        rows = conn.execute(f"""
+            SELECT date, SUM(amount) AS total
+            FROM expenses {where}
+            GROUP BY date
+            ORDER BY date
+        """, params).fetchall()
+    return [{"date": r["date"], "total": round(r["total"], 2)} for r in rows]
 
-if highest:
-    print("Top Category:", highest[0])
-    print("Top Category Amount:", highest[1])
 
-if highest_day:
-    print("Highest Spending Day:", highest_day[0])
-    print("Highest Day Amount:", highest_day[1])
+def get_highest_spending_day(month=None):
+    days = get_daily_spending(month)
+    return max(days, key=lambda d: d["total"]) if days else None
 
-    # Budget Analysis
-budget = 3000
 
-print("\n===== BUDGET ANALYSIS =====")
-print("Monthly Budget:", budget)
-print("Total Expense:", total)
+def get_monthly_summary():
+    """[{month, total, count}] for every month that has data."""
+    with get_connection() as conn:
+        rows = conn.execute("""
+            SELECT strftime('%Y-%m', date) AS month,
+                   SUM(amount) AS total,
+                   COUNT(*) AS count
+            FROM expenses
+            GROUP BY month
+            ORDER BY month
+        """).fetchall()
+    return [{"month": r["month"], "total": round(r["total"], 2), "count": r["count"]} for r in rows]
 
-if total > budget:
-    print("Status: Budget Exceeded")
-    print("Amount Exceeded:", total - budget)
-else:
-    print("Status: Within Budget")
-    print("Amount Remaining:", budget - total)
 
-    # Spending Level
+def get_top_expenses(limit=5, month=None):
+    where, params = _month_filter(month)
+    with get_connection() as conn:
+        rows = conn.execute(f"""
+            SELECT id, amount, category, description, date
+            FROM expenses {where}
+            ORDER BY amount DESC
+            LIMIT ?
+        """, params + (limit,)).fetchall()
+    return _rows_to_dicts(rows)
 
-percentage_used = (total / budget) * 100
 
-print("\n===== SPENDING LEVEL =====")
-print("Budget Used:", round(percentage_used, 2), "%")
+# ---------- budget ----------
 
-if percentage_used < 50:
-    print("Spending Level: Low")
-elif percentage_used <= 80:
-    print("Spending Level: Moderate")
-else:
-    print("Spending Level: High")
+def get_budget_status(budget=DEFAULT_MONTHLY_BUDGET, month=None):
+    """Budget check for one month (defaults to the current month)."""
+    month = month or current_month()
+    spent = get_total_spent(month)
+    percent_used = round(spent / budget * 100, 2) if budget else 0
 
-    # Spending Warning
+    if percent_used < 50:
+        level = "Low"
+    elif percent_used <= 80:
+        level = "Moderate"
+    else:
+        level = "High"
 
-print("\n===== SPENDING WARNING =====")
+    if percent_used >= 100:
+        status, message = "exceeded", "You have exceeded your budget!"
+    elif percent_used >= 90:
+        status, message = "critical", "You are close to your budget limit!"
+    elif percent_used >= 80:
+        status, message = "warning", "You have used more than 80% of your budget."
+    else:
+        status, message = "ok", "Your spending is under control."
 
-if percentage_used >= 90:
-    print("Warning: You are close to your budget limit!")
-elif percentage_used >= 70:
-    print("Notice: Your spending is getting high.")
-else:
-    print("Good: Your spending is under control.")
+    return {
+        "month": month,
+        "budget": budget,
+        "spent": spent,
+        "remaining": round(budget - spent, 2),
+        "percent_used": percent_used,
+        "level": level,
+        "status": status,
+        "message": message,
+    }
 
-    # Monthly Analytics
 
-month = "2026-08"
+# ---------- one call for the dashboard ----------
 
-cursor.execute("""
-    SELECT SUM(amount)
-    FROM expenses
-    WHERE date LIKE ?
-""", (month + "%",))
+def get_dashboard_summary(month=None, budget=DEFAULT_MONTHLY_BUDGET):
+    """Everything the dashboard needs in a single JSON-friendly dict."""
+    return {
+        "month": month or "all",
+        "total_spent": get_total_spent(month),
+        "average_expense": get_average_expense(month),
+        "expense_count": get_expense_count(month),
+        "top_category": get_top_category(month),
+        "highest_spending_day": get_highest_spending_day(month),
+        "category_breakdown": get_category_breakdown(month),
+        "daily_spending": get_daily_spending(month),
+        "monthly_summary": get_monthly_summary(),
+        "top_expenses": get_top_expenses(5, month),
+        "budget": get_budget_status(budget, month),
+    }
 
-monthly_total = cursor.fetchone()[0]
 
-if monthly_total is None:
-    monthly_total = 0
+# ---------- CLI report (python src/analytics.py) ----------
 
-print("\n===== MONTHLY ANALYTICS =====")
-print("Month:", month)
-print("Monthly Total Expense:", monthly_total)
+def print_report(month=None, budget=DEFAULT_MONTHLY_BUDGET):
+    s = get_dashboard_summary(month, budget)
 
-cursor.execute("""
-    SELECT COUNT(*)
-    FROM expenses
-    WHERE date LIKE ?
-""", (month + "%",))
+    if s["expense_count"] == 0:
+        print("No expenses found.")
+        return
 
-monthly_count = cursor.fetchone()[0]
+    print(f"===== EXPENSE SUMMARY ({s['month']}) =====")
+    print("Total Expense:", s["total_spent"])
+    print("Average Expense:", s["average_expense"])
+    print("Number of Expenses:", s["expense_count"])
+    top = s["top_category"]
+    print("Top Category:", top["category"], "-", top["total"])
+    day = s["highest_spending_day"]
+    print("Highest Spending Day:", day["date"], "-", day["total"])
 
-print("Number of Expenses:", monthly_count)
+    print("\n===== CATEGORY BREAKDOWN =====")
+    for c in s["category_breakdown"]:
+        print(f"{c['category']}: {c['total']} ({c['percentage']}%)")
 
-# Monthly Average
+    print("\n===== DAILY SPENDING =====")
+    for d in s["daily_spending"]:
+        print(d["date"], ":", d["total"])
 
-if monthly_count > 0:
-    monthly_average = monthly_total / monthly_count
-else:
-    monthly_average = 0
+    print("\n===== MONTHLY SUMMARY =====")
+    for m in s["monthly_summary"]:
+        print(m["month"], ":", m["total"], f"({m['count']} expenses)")
 
-print("Monthly Average Expense:", round(monthly_average, 2))
+    b = s["budget"]
+    print(f"\n===== BUDGET STATUS ({b['month']}) =====")
+    print("Budget:", b["budget"])
+    print("Spent:", b["spent"])
+    print("Remaining:", b["remaining"])
+    print(f"Budget Used: {b['percent_used']}% (Level: {b['level']})")
+    print(f"[{b['status'].upper()}] {b['message']}")
 
-# Top Category for the Month
 
-cursor.execute("""
-    SELECT category, SUM(amount) AS total
-    FROM expenses
-    WHERE date LIKE ?
-    GROUP BY category
-    ORDER BY total DESC
-    LIMIT 1
-""", (month + "%",))
-
-top_month_category = cursor.fetchone()
-
-if top_month_category:
-    print("Top Category:", top_month_category[0])
-    print("Top Category Amount:", top_month_category[1])
-else:
-    print("No expenses found for this month.")
-
-    # Daily Spending
-
-cursor.execute("""
-    SELECT date, SUM(amount) AS total
-    FROM expenses
-    WHERE date LIKE ?
-    GROUP BY date
-    ORDER BY date
-""", (month + "%",))
-
-daily_expenses = cursor.fetchall()
-
-print("\n===== DAILY SPENDING =====")
-
-for day, amount in daily_expenses:
-    print(day, ":", amount)
-
-connection.close()
-
+if __name__ == "__main__":
+    print_report()
